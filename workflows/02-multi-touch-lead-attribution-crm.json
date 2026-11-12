@@ -1,0 +1,78 @@
+{
+  "name": "02 - Multi-Touch Lead Attribution, Deduplication & CRM Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "inbound-lead-attribution",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "node-lead-webhook",
+      "name": "Inbound Lead & UTM Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [220, 320]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json;\nconst email = (body.email || '').trim().toLowerCase();\nconst phone = (body.phone || '').replace(/[^0-9+]/g, '');\nif (!email && !phone) {\n  throw new Error('INVALID_PAYLOAD: Missing both email and phone');\n}\nconst idempotencyKey = `${email}::${phone}::${body.utm_campaign || 'direct'}`;\nreturn [{ json: { ...body, normalized_email: email, normalized_phone: phone, idempotency_key: idempotencyKey, ingested_at: new Date().toISOString() } }];"
+      },
+      "id": "node-normalize-dedupe",
+      "name": "Normalize & Generate Idempotency Key",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 320]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'gpt-4o-mini', response_format: { type: 'json_object' }, messages: [ { role: 'system', content: 'Classify B2B lead intent into JSON: { \"tier\": \"HOT|WARM|COLD\", \"score\": 1-100, \"routing_queue\": \"enterprise|smb\", \"personalized_opener\": \"string\" }' }, { role: 'user', content: JSON.stringify($json) } ] }) }}"
+      },
+      "id": "node-ai-lead-scorer",
+      "name": "AI Lead Scoring & Intent Classifier",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [700, 320],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://services.leadconnectorhq.com/hooks/crm-sync",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ lead: $('Normalize & Generate Idempotency Key').first().json, scoring: $json }) }}"
+      },
+      "id": "node-crm-sync",
+      "name": "Upsert to CRM & Trigger WhatsApp Follow-Up",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [940, 320],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    }
+  ],
+  "connections": {
+    "Inbound Lead & UTM Webhook": {
+      "main": [[{ "node": "Normalize & Generate Idempotency Key", "type": "main", "index": 0 }]]
+    },
+    "Normalize & Generate Idempotency Key": {
+      "main": [[{ "node": "AI Lead Scoring & Intent Classifier", "type": "main", "index": 0 }]]
+    },
+    "AI Lead Scoring & Intent Classifier": {
+      "main": [[{ "node": "Upsert to CRM & Trigger WhatsApp Follow-Up", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

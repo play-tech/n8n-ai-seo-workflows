@@ -1,0 +1,54 @@
+{
+  "name": "03 - Local SEO & Google Business Profile Review Autopilot",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "hours", "hoursInterval": 2 }]
+        }
+      },
+      "id": "node-schedule-gbp",
+      "name": "Poll Every 2 Hours",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [220, 280]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Analyzes incoming GBP review star rating and routes < 4 stars to human escalation\nconst review = $input.first().json;\nconst isPositive = (review.starRating || 5) >= 4;\nreturn [{ json: { ...review, auto_reply_eligible: isPositive } }];"
+      },
+      "id": "node-sentiment-gate",
+      "name": "Sentiment & Escalation Gate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 280]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'gpt-4o-mini', messages: [ { role: 'system', content: 'Write a warm, authentic owner response to this Google Business Profile review that naturally weaves in the service category and city for Local SEO relevance without keyword stuffing.' }, { role: 'user', content: JSON.stringify($json) } ] }) }}"
+      },
+      "id": "node-gbp-seo-reply",
+      "name": "Draft Local-SEO Enriched Review Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [700, 280]
+    }
+  ],
+  "connections": {
+    "Poll Every 2 Hours": {
+      "main": [[{ "node": "Sentiment & Escalation Gate", "type": "main", "index": 0 }]]
+    },
+    "Sentiment & Escalation Gate": {
+      "main": [[{ "node": "Draft Local-SEO Enriched Review Reply", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

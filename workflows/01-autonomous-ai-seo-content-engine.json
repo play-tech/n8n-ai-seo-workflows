@@ -1,0 +1,83 @@
+{
+  "name": "01 - Autonomous AI SEO & Competitor Entity Content Engine",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "seo-content-pipeline",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "node-webhook-seo",
+      "name": "Keyword & Target URL Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.firecrawl.dev/v1/search",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: $json.target_keyword, limit: 5, scrapeOptions: { formats: ['markdown'] } }) }}",
+        "options": {
+          "timeout": 45000
+        }
+      },
+      "id": "node-firecrawl-serp",
+      "name": "Firecrawl SERP Competitor Scraper",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [480, 300],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "jsCode": "const results = $input.first().json.data || [];\nconst corpus = results.map((r, i) => `### Competitor ${i+1}: ${r.title} (${r.url})\\n${(r.markdown || '').slice(0, 2500)}`).join('\\n\\n');\nreturn [{ json: { target_keyword: $('Keyword & Target URL Webhook').first().json.target_keyword, competitor_corpus: corpus } }];"
+      },
+      "id": "node-extract-entities",
+      "name": "Aggregate SERP Markdown Corpus",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [720, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'gpt-4o', response_format: { type: 'json_object' }, messages: [ { role: 'system', content: 'You are an Enterprise Technical SEO Architect. Analyze the competitor corpus and output strict JSON with keys: meta_title (<=60 chars), meta_description (<=155 chars), slug, semantic_entities (array), faq_schema_jsonld (object), and article_html (comprehensive semantic HTML5).' }, { role: 'user', content: `Target Keyword: ${$json.target_keyword}\\n\\nCompetitor Corpus:\\n${$json.competitor_corpus}` } ] }) }}"
+      },
+      "id": "node-llm-seo-writer",
+      "name": "AI Semantic SEO & Schema Generator",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [960, 300],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    }
+  ],
+  "connections": {
+    "Keyword & Target URL Webhook": {
+      "main": [[{ "node": "Firecrawl SERP Competitor Scraper", "type": "main", "index": 0 }]]
+    },
+    "Firecrawl SERP Competitor Scraper": {
+      "main": [[{ "node": "Aggregate SERP Markdown Corpus", "type": "main", "index": 0 }]]
+    },
+    "Aggregate SERP Markdown Corpus": {
+      "main": [[{ "node": "AI Semantic SEO & Schema Generator", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
